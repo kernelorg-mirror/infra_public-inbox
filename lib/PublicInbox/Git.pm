@@ -53,7 +53,7 @@ my %GIT_ESC = (
 );
 my %ESC_GIT = map { $GIT_ESC{$_} => $_ } keys %GIT_ESC;
 
-my $EXE_ST = ''; # pack('dd', st_dev, st_ino); # no `q' in some 32-bit builds
+my $EXE_ST = ''; # pack('JJ', st_dev, st_ino); # no `q' in some 32-bit builds
 my ($GIT_EXE, $GIT_VER);
 
 sub git_exe () {
@@ -66,7 +66,7 @@ sub git_exe () {
 
 sub git_version () {
 	my @st = stat(git_exe) or die "stat($GIT_EXE): $!";
-	my $st = pack('dd', $st[0], $st[1]);
+	my $st = pack('JJ', $st[0], $st[1]);
 	if ($st ne $EXE_ST) {
 		my $v = run_qx([ $GIT_EXE, '--version' ]);
 		die "$GIT_EXE --version: \$?=$?" if $?;

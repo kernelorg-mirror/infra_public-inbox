@@ -51,13 +51,13 @@ sub lss_dir_for ($$;$) {
 	}
 	($pfx) = ($pfx =~ m{([^/]+)/*\z}); # basename
 	my $lss_dir = $lei->share_path . '/saved-searches/';
-	my $d = "$lss_dir$pfx-".sha256_hex($$dstref);
+	my $dir = "$lss_dir$pfx-".sha256_hex($$dstref);
 
 	# fall-back to looking up by st_ino + st_dev in case we're in
 	# a symlinked or bind-mounted path
-	if ($on_fs && !-d $d && -e $$dstref) {
+	if ($on_fs && !-d $dir && -e $$dstref) {
 		my @cur = stat(_);
-		my $want = pack('dd', @cur[1,0]); # st_ino + st_dev
+		my $want = pack('JJ', @cur[1,0]); # st_ino + st_dev
 		my ($c, $o, @st);
 		opendir(my $dh, $lss_dir);
 		my @d = sort(grep(!/\A\.\.?\z/, readdir($dh)));
@@ -70,11 +70,11 @@ sub lss_dir_for ($$;$) {
 			$o = $c->{'lei.q.output'} // next;
 			$o =~ s!$LOCAL_PFX!! or next;
 			@st = stat($o) or next;
-			next if pack('dd', @st[1,0]) ne $want;
+			next if pack('JJ', @st[1,0]) ne $want;
 			$f =~ m!\A(.+?)/[^/]+\z! and return $1;
 		}
 	}
-	$d;
+	$dir;
 }
 
 sub list {

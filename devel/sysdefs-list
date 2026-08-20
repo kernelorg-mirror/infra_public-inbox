@@ -56,6 +56,7 @@ __DATA__
 #include <stddef.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
+#include <sys/stat.h>
 #ifdef HAVE_SYS_IOCTL_H
 #	include <sys/ioctl.h>
 #endif
@@ -230,6 +231,11 @@ int main(void)
 		cmsg_data_off = (uintptr_t)CMSG_DATA(&cmsg) - (uintptr_t)&cmsg;
 		D(cmsg_data_off);
 	}
+
+	STRUCT_BEGIN(struct stat);
+		PR_NUM(st_ino);
+		PR_NUM(st_dev);
+	STRUCT_END;
 
 	return 0;
 }

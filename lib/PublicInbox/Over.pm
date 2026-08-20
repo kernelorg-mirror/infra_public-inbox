@@ -31,11 +31,11 @@ sub dbh_new {
 	my $tries = 0;
 	do {
 		@st = stat($f) or die "failed to stat $f: $!";
-		$st = pack('dd', $st[0], $st[1]); # 0: dev, 1: inode
+		$st = pack('JJ', $st[0], $st[1]); # 0: dev, 1: inode
 		$dbh = PublicInbox::SQLiteUtil::dbh_open($f, @ro);
 		$self->{st} = $st;
 		@st = stat($f) or die "failed to stat $f: $!";
-		$st = pack('dd', $st[0], $st[1]);
+		$st = pack('JJ', $st[0], $st[1]);
 	} while ($st ne $self->{st} && $tries++ < 3);
 	warn "W: $f: .st_dev, .st_ino unstable\n" if $st ne $self->{st};
 
@@ -381,7 +381,7 @@ sub check_inodes {
 	my $dbh = $self->{dbh} or return;
 	my $f = $dbh->sqlite_db_filename;
 	if (my @st = stat($f)) { # did st_dev, st_ino change?
-		my $st = pack('dd', $st[0], $st[1]);
+		my $st = pack('JJ', $st[0], $st[1]);
 
 		# don't actually reopen, just let {dbh} be recreated later
 		dbh_close($self) if $st ne ($self->{st} // $st);

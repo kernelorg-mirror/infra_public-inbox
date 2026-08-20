@@ -1316,7 +1316,7 @@ sub dir_idle_cb { # PublicInbox::DirIdle callback
 sub can_stay_alive { # PublicInbox::DS::post_loop_do cb
 	my ($sock_path, $dev_ino_expect) = @_;
 	if (my @st = defined($$sock_path) ? stat($$sock_path) : ()) {
-		if ($dev_ino_expect ne pack('dd', $st[0], $st[1])) {
+		if ($dev_ino_expect ne pack('JJ', $st[0], $st[1])) {
 			warn "$$sock_path dev/ino changed, quitting\n";
 			$$sock_path = undef;
 		}
@@ -1392,7 +1392,7 @@ sub lazy_start {
 	$lk->lock_release;
 	undef $lk;
 	my @st = stat($sock_path) or die "stat($sock_path): $!";
-	my $dev_ino_expect = pack('dd', $st[0], $st[1]); # dev+ino
+	my $dev_ino_expect = pack('JJ', $st[0], $st[1]); # dev+ino
 	local $oldset = PublicInbox::DS::block_signals(POSIX::SIGALRM);
 	die "incompatible narg=$narg" if $narg != 5;
 	$PublicInbox::IPC::send_cmd or die <<"";
