@@ -340,7 +340,7 @@ BEGIN {
 		$CONST{TCP_ESTABLISHED} = 4 if $^O ne 'dragonfly';
 
 		# FIXME: see if NetBSD can bump this
-		$CONST{MY_SEQPACKET_MAX} = 400 if $^O eq 'netbsd';
+		$CONST{MY_SEQPACKET_MAX} = 1000 if $^O eq 'netbsd';
 	}
 	if ($^O eq 'freebsd' && $kver ge v15.0) {
 		$INOTIFY = {

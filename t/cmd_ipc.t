@@ -14,11 +14,11 @@ require POSIX;
 my $do_test = sub { SKIP: {
 	my ($type, $flag, $desc) = @_;
 	my ($s1, $s2);
-	my $src = 'some payload' x 40;
+	my $src = 'a payload' x 40;
 	socketpair($s1, $s2, AF_UNIX, $type, 0);
 	my $io = [ $r, $w, $s1 ];
 	$send->($s1, $io, $src, $flag);
-	my @io = $recv->($s2, my $buf, length($src) + 1);
+	my @io = $recv->($s2, my $buf, length($src) * 2);
 	is($buf, $src, 'got buffer payload '.$desc);
 	my ($r1, $w1, $s1a);
 	my $ck_io = sub {
@@ -108,13 +108,16 @@ my $do_test = sub { SKIP: {
 			"hit EAGAIN || ETOOMANYREFS || EMSGSIZE on send $desc")
 			or diag "send failed with: $! (nsent=$nsent)";
 		ok($nsent > 0, 'sent some bytes');
+		undef $io;
+
+		substr($src, 0, 1000, '') if $^O eq 'netbsd';
 
 		socketpair($s1, $s2, AF_UNIX, $type, 0);
 		is($send->($s1, [], $src, $flag), length($src), 'sent w/o IOs');
 		$buf = 'nope';
-		@io = $recv->($s2, $buf, length($src));
+		@io = $recv->($s2, $buf, length($src) * 2);
 		is(scalar(@io), 0, 'no FDs received');
-		is($buf, $src, 'recv w/o FDs');
+		is_xdeeply($buf, $src, 'recv w/o FDs');
 	}
 	socketpair($s1, $s2, AF_UNIX, $type, 0);
 	is($send->($s1, undef, $src, $flag), length($src), 'sent w/ undef IO');

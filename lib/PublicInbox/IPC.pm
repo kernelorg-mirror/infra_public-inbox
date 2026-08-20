@@ -10,13 +10,13 @@
 package PublicInbox::IPC;
 use v5.12;
 use parent qw(Exporter);
-use autodie qw(close pipe read send socketpair);
+use autodie qw(close open pipe read send socketpair sysseek);
 use Errno qw(EAGAIN EINTR);
 use Carp qw(croak carp);
+use Fcntl qw(SEEK_SET);
 use PublicInbox::Syscall qw(MY_SEQPACKET_MAX);
 use PublicInbox::DS qw(awaitpid);
-use PublicInbox::IO qw(my_bufread my_gets);
-use PublicInbox::Spawn;
+use PublicInbox::IO qw(my_bufread my_gets read_all);
 use PublicInbox::OnDestroy;
 use PublicInbox::WQWorker;
 use Socket qw(AF_UNIX SOCK_STREAM SOCK_SEQPACKET MSG_EOR);
@@ -46,14 +46,13 @@ if ($enc && $dec) { # should be custom ops
 }
 
 our ($recv_cmd, $send_cmd);
-do {
+if ($recv_cmd = PublicInbox::Syscall->can('recv_cmd4')) {
+	$send_cmd = PublicInbox::Syscall->can('send_cmd4');
+} else {
+	require PublicInbox::Spawn;
 	$recv_cmd = PublicInbox::Spawn->can('recv_cmd4');
 	$send_cmd = PublicInbox::Spawn->can('send_cmd4');
-} // do {
-	require PublicInbox::Syscall;
-	$recv_cmd = PublicInbox::Syscall->can('recv_cmd4');
-	$send_cmd = PublicInbox::Syscall->can('send_cmd4');
-};
+}
 
 sub _get_rec ($) {
 	my ($r) = @_;
@@ -318,27 +317,23 @@ sub ipc_sibling_atfork_child {
 		die "BUG: $$ ipc_atfork_child called on itself";
 }
 
+sub recvcmd_eor ($$;$$) {
+	my ($s, undef, $len, $tries) = @_; # $_[1] is input buffer
+	my @io = $recv_cmd->($s, $_[1], $len // (MY_SEQPACKET_MAX * 2), $tries);
+	return @io if @io && !defined($io[0]); # error
+	($_[1] eq "\0" && @io && -f $io[0] && -r _ && -w _) and
+		# prepare_buf_as_io used by sender:
+		read_all(shift @io, -s _, \($_[1]));
+	@io;
+}
+
 sub recv_and_run {
-	my ($self, $s2, $len, $full_stream) = @_;
-	my @io = $recv_cmd->($s2, my $buf, $len // MY_SEQPACKET_MAX);
+	my ($self, $s2, $len) = @_;
+	my @io = recvcmd_eor($s2, my $buf);
 	return if scalar(@io) && !defined($io[0]);
 	my $n = length($buf) or return 0;
 	local @$self{0..$#io} = @io;
 	$_->autoflush(1) for @io;
-	while ($full_stream && $n < $len) {
-		my $r = sysread($s2, $buf, $len - $n, $n);
-		if ($r) {
-			$n = length($buf); # keep looping
-		} elsif (!defined $r) {
-			if ($! == EAGAIN) {
-				poll_in($s2)
-			} elsif ($! != EINTR) {
-				croak "sysread: $!";
-			} # next on EINTR
-		} else { # ($r == 0)
-			croak "read EOF after $n/$len bytes";
-		}
-	}
 	# Sereal dies on truncated data, Storable returns undef
 	my $args = ipc_thaw($buf) // die "thaw error on buffer of size: $n";
 	undef $buf;
@@ -364,13 +359,9 @@ sub wq_worker_loop ($$$) {
 	PublicInbox::DS->Reset;
 }
 
-sub do_sock_stream { # via wq_io_do, for big requests
-	my ($self, $len) = @_;
-	recv_and_run($self, my $s2 = delete $self->{0}, $len, 1);
-}
-
 sub send_eor ($$) {
 	my ($s) = @_;
+	return sendcmd_eor($s, [], $_[1]) if length($_[1]) > MY_SEQPACKET_MAX;
 	my $n;
 	do { $n = send $s, $_[1], MSG_EOR } while !defined($n) && $! == EINTR;
 	$n // ($! == EAGAIN ? return : croak("send: $!"));
@@ -393,37 +384,34 @@ sub wq_broadcast {
 	croak "@exc" if @exc;
 }
 
-sub sendmsg_eor ($$$;$) {
-	my $n = $send_cmd->($_[0], $_[1], $_[2], MSG_EOR, $_[3] // 50) //
-		return;
-	$n == length($_[2]) ? $n : croak('sendmsg('.length($_[2])." > $n)");
+# for buffers too big to send atomically with MSG_EOR
+sub prepare_buf_as_io ($$) {
+	my ($io, $buf) = @_;
+	open my $tmpfh, '+>', undef;
+	print $tmpfh $buf or croak "print: $!";
+	$tmpfh->flush or croak "flush: $!";
+	sysseek $tmpfh, SEEK_SET, 0;
+	([ $tmpfh, @$io ], "\0");
 }
 
-sub stream_in_full ($$$) {
-	my ($s1, $io, $buf) = @_;
-	socketpair(my $r, my $w, AF_UNIX, SOCK_STREAM, 0);
-	my $n = sendmsg_eor($s1, [ $r ],
-			ipc_freeze(['do_sock_stream', length($buf)]))
-		// croak "sendmsg: $!";
-	undef $r;
-	$n = $send_cmd->($w, $io, $buf, 0) // croak "sendmsg: $!";
-	print $w substr($buf, $n) if $n < length($buf); # need > 2G on Linux
-	close $w; # autodies if print failed
+sub sendcmd_eor ($$$;$) {
+	my ($s, $io, $buf, $tries) = @_;
+	(length($buf) > MY_SEQPACKET_MAX) and
+		($io, $buf) = prepare_buf_as_io($io, $buf);
+	my $n = $send_cmd->($s, $io, $buf, 0, $tries // 50);
+	if (!defined($n) && $!{EMSGSIZE} && $buf ne "\0") {
+		($io, $buf) = prepare_buf_as_io($io, $buf);
+		$n = $send_cmd->($s, $io, $buf, 0, $tries // 50);
+	}
+	$n // croak "sendmsg: $!";
+	$n == length($buf) ? $n : croak('sendmsg('.length($buf)." > $n)");
 }
 
 sub wq_io_do { # always async
 	my ($self, $sub, $io, @args) = @_;
-	my $s1 = $self->{-wq_s1} or Carp::confess('no -wq_s1');
-	my $buf = ipc_freeze([$sub, @args]);
-	if (length($buf) > MY_SEQPACKET_MAX) {
-		stream_in_full($s1, $io, $buf);
-	} elsif (defined sendmsg_eor($s1, $io, $buf)) {
-		# success
-	} else {
-		$!{ETOOMANYREFS} and croak "sendmsg: $! (check RLIMIT_NOFILE)";
-		$!{EMSGSIZE} ? stream_in_full($s1, $io, $buf) :
-			croak("sendmsg: $!");
-	}
+	sendcmd_eor($self->{-wq_s1} // Carp::confess('no -wq_s1'), $io,
+			ipc_freeze([$sub, @args])) // croak "sendmsg: $!".
+			($!{ETOOMANYREFS} ? ' (check RLIMIT_NOFILE)' : '')
 }
 
 sub wq_sync_run {
@@ -459,7 +447,7 @@ sub wq_nonblock_do { # always async
 	my $buf = ipc_freeze([$sub, @args]);
 	if ($self->{wqb}) { # saturated once, assume saturated forever
 		$self->{wqb}->flush_send($buf);
-	} elsif (defined sendmsg_eor($self->{-wq_s1}, [], $buf)) {
+	} elsif (defined sendcmd_eor($self->{-wq_s1}, [], $buf)) {
 		# success!
 	} elsif ($!{EAGAIN} || $!{ENOBUFS} || $!{ENOMEM}) {
 		PublicInbox::WQBlocked->new($self, $buf);

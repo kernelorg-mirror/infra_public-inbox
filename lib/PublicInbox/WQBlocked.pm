@@ -21,7 +21,7 @@ sub flush_send {
 	while (defined(my $buf = shift @{$self->{msgq}})) {
 		if (ref($buf) eq 'CODE') {
 			$buf->($self); # could be \&PublicInbox::DS::close
-		} elsif (defined(PublicInbox::IPC::sendmsg_eor(
+		} elsif (defined(PublicInbox::IPC::sendcmd_eor(
 					$self->{sock}, [], $buf))) {
 			# success
 		} else {

@@ -31,7 +31,7 @@ test_lei({ daemon_only => 1 }, sub {
 			socket(my $c, AF_UNIX, SOCK_SEQPACKET, 0) or
 							BAIL_OUT "socket: $!";
 			connect($c, $addr) or BAIL_OUT "connect: $!";
-			PublicInbox::IPC::sendmsg_eor($c,
+			PublicInbox::IPC::sendcmd_eor($c,
 						[ $null, $null, $null ], 'hi');
 		}
 		lei_ok('daemon-pid');

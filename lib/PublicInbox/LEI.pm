@@ -30,7 +30,7 @@ use PublicInbox::ContentHash qw(git_sha);
 use PublicInbox::OnDestroy;
 use PublicInbox::IPC qw(send_eor);
 use PublicInbox::Search;
-use PublicInbox::IO qw(poll_in);
+use PublicInbox::IO qw(poll_in read_all);
 use PublicInbox::XapHelperCxx;
 use Time::HiRes qw(stat); # ctime comparisons for config cache
 use File::Path ();
@@ -1057,7 +1057,7 @@ sub start_mua {
 
 sub send_exec_cmd { # tell script/lei to execute a command
 	my ($self, $io, $cmd, $env) = @_;
-	PublicInbox::IPC::sendmsg_eor(
+	PublicInbox::IPC::sendcmd_eor(
 			$self->{sock} // die('lei client gone'),
 			$io, exec_buf($cmd, $env)) //
 		Carp::croak("sendmsg: $!");
@@ -1153,17 +1153,15 @@ sub accept_dispatch { # Listener {post_accept} callback
 	do {
 		poll_in $sock, 60_000 or return send_gently $sock,
 						'timed out waiting to recv FDs';
-		# (4096 * 33) >(old) MY_MAX_ARG_LEN, TODO: 64K
-		@io = $PublicInbox::IPC::recv_cmd->($sock, $buf, 4096 * 33)
-			or return; # EOF
+		@io = PublicInbox::IPC::recvcmd_eor($sock, $buf) or return;
 	} while (!defined($io[0]) && $! == EAGAIN);
 	if (!defined($io[0])) {
-		warn(my $msg = "recv_cmd failed: $!");
+		warn(my $msg = "recvcmd failed: $!");
 		return send_gently $sock, $msg;
-	} else {
-		@io == 4 or return
-			send_gently $sock, 'not enough FDs='.scalar(@io);
+	} elsif (@io == 4) {
 		@$self{0..$#io} = @io;
+	} else {
+		return send_gently $sock, 'wrong # of FDs='.scalar(@io);
 	}
 	# $ENV_STR = join('', map { "\0$_=$ENV{$_}" } keys %ENV);
 	# $buf = "$argc\0".join("\0", @ARGV).$ENV_STR."\0\0";
@@ -1200,14 +1198,14 @@ sub long_reqid {
 	};
 }
 
-# for long-running results
+# for long-running results from script/lei
 sub event_step {
 	my ($self) = @_;
 	local %ENV = %{$self->{env}};
 	local $current_lei = $self;
 	eval {
-		my @io = $PublicInbox::IPC::recv_cmd->(
-			$self->{sock} // return, my $buf, 4096);
+		my @io = PublicInbox::IPC::recvcmd_eor($self->{sock} // return,
+							my $buf, 4096);
 		if (scalar(@io) == 1 && !defined($io[0])) {
 			return if $! == EAGAIN;
 			die "recvmsg: $!" if $! != ECONNRESET;

@@ -91,10 +91,8 @@ my $doreq = sub {
 	pipe(my $x, my $y);
 	my $buf = join("\0", @arg, '');
 	my @io = ($y, $err);
-	my $n = PublicInbox::IPC::sendmsg_eor($s, \@io, $buf) //
+	PublicInbox::IPC::sendcmd_eor($s, \@io, $buf) //
 		xbail "sendmsg: $!";
-	my $exp = length($buf);
-	$exp == $n or xbail "req @arg sent short ($n != $exp)";
 	$x;
 };
 

@@ -3,13 +3,11 @@
 # License: AGPL-3.0+ <https://www.gnu.org/licenses/agpl-3.0.txt>
 use v5.12;
 use Socket qw(AF_UNIX SOCK_SEQPACKET pack_sockaddr_un MSG_EOR);
+use PublicInbox::Syscall ();
 my $narg = 5;
-my ($sock, $recv_cmd, $send_cmd);
-do {
-	require PublicInbox::Syscall;
-	$recv_cmd = PublicInbox::Syscall->can('recv_cmd4');
-	$send_cmd = PublicInbox::Syscall->can('send_cmd4');
-} // do {
+my $sock;
+my $recv_cmd = PublicInbox::Syscall->can('recv_cmd4') // do {
+	# configure Inline::C + Spawn before loading PublicInbox::IPC
 	my $inline_dir = $ENV{PERL_INLINE_DIRECTORY} //= (
 			$ENV{XDG_CACHE_HOME} //
 			( ($ENV{HOME} // '/nonexistent').'/.cache' )
@@ -19,9 +17,8 @@ do {
 		File::Path::make_path($inline_dir);
 	}
 	require PublicInbox::Spawn; # takes ~50ms even if built *sigh*
-	$recv_cmd = PublicInbox::Spawn->can('recv_cmd4');
-	$send_cmd = PublicInbox::Spawn->can('send_cmd4');
-} // die 'please install Inline::C';
+	PublicInbox::Spawn->can('recv_cmd4');
+} // die 'please install Inline::C for SCM_RIGHTS support';
 
 my %pids;
 my $sigchld = sub {
@@ -98,18 +95,20 @@ lei-daemon could not start, exited with \$?=$?
 connect($path): $! (after attempted daemon start)
 
 }
-open my $dh, '<', '.' or die "open(.) $!";
+my @io = (\*STDIN, \*STDOUT, \*STDERR, undef);
+open $io[3], '<', '.' or die "open(.) $!";
 my $buf = join("\0", scalar(@ARGV), @ARGV);
 while (my ($k, $v) = each %ENV) { $buf .= "\0$k=$v" }
 $buf .= "\0\0";
-$send_cmd->($sock, [\*STDIN, \*STDOUT, \*STDERR, $dh], $buf, MSG_EOR) or
-	die "sendmsg: $!";
-$SIG{TSTP} = sub { send($sock, 'STOP', MSG_EOR); kill 'STOP', $$ };
-$SIG{CONT} = sub { send($sock, 'CONT', MSG_EOR) };
+require PublicInbox::IPC; # FIXME: slow loading
+PublicInbox::IPC::sendcmd_eor($sock, \@io, $buf) // die "sendmsg: $!";
+$SIG{TSTP} = sub { PublicInbox::IPC::send_eor($sock, 'STOP'); kill 'STOP', $$ };
+$SIG{CONT} = sub { PublicInbox::IPC::send_eor($sock, 'CONT') };
 
 my $x_it_code = 0;
 while (1) {
-	my @io = $recv_cmd->($sock, my $buf, 4096 * 33);
+	@io = ();
+	@io = PublicInbox::IPC::recvcmd_eor($sock, $buf);
 	die "recvmsg: $!" if scalar(@io) == 1 && !defined($io[0]);
 	last if $buf eq '';
 	if ($buf =~ /\Aexec (.+)\z/) {

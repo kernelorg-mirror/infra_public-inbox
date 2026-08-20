@@ -37,15 +37,17 @@ sub pkt_do { # for the producer to trigger event_step in consumer
 sub event_step {
 	my ($self) = @_;
 	my $c = $self->{sock};
-	my ($msg, $n, $cmd, @pargs);
-	do {
-		$n = recv($c, $msg, 4096, 0);
-		unless (defined $n) {
+	my ($msg, $cmd, @pargs);
+	while (1) {
+		my @io = PublicInbox::IPC::recvcmd_eor($c, $msg, undef, 0);
+		if (@io && !defined($io[0])) {
 			next if $! == EINTR;
 			return if $! == EAGAIN;
-			die "recv: $!" if $! != ECONNRESET; # we may be bidirectional
+			# we may be bidirectional
+			die "recvmsg: $!" if $! != ECONNRESET;
 		}
-	} until (defined $n);
+		last;
+	}
 	if (index($msg, "\0") > 0) {
 		($cmd, my $pargs) = split(/\0/, $msg, 2);
 		@pargs = @{ipc_thaw($pargs)};

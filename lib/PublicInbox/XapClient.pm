@@ -18,8 +18,8 @@ our $tries = -1; # set to zero by read-only daemon
 sub mkreq {
 	my ($self, $io, @arg) = @_;
 	my $buf = join("\0", @arg, '');
-	PublicInbox::IPC::sendmsg_eor($self->{io}, $io, $buf, $tries) //
-		croak "sendmsg_eor: $!";
+	PublicInbox::IPC::sendcmd_eor($self->{io}, $io, $buf, $tries) //
+		croak "sendcmd_eor: $!";
 }
 
 sub start_helper (@) {

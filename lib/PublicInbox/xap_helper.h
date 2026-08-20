@@ -180,6 +180,12 @@ enum exc_iter {
 #define MY_ARG_MAX 256 // FIXME too small?
 typedef bool (*cmd)(struct req *);
 
+enum input_state {
+	IN_RBUF = 0, // the default
+	IN_FILE_MAYBE,
+	IN_FILE // sender used prepare_buf_as_io
+};
+
 // only one request per-process since we have RLIMIT_CPU timeout
 struct req { // argv and pfxv point into global rbuf
 	char *lockv[MY_ARG_MAX]; // open.lock files
@@ -200,8 +206,9 @@ struct req { // argv and pfxv point into global rbuf
 	size_t nr_out;
 	long sort_col; // value column, negative means BoolWeight
 	int argc, pfxc, qpfxc, dirc, lockc;
-	FILE *fp[2]; // [0] response pipe or sock, [1] status/errors (optional)
-	bool has_input; // fp[0] is bidirectional
+	FILE *fp[3];
+		// [ [ input file (optional if input_state=IN_FILE) ],
+		// [ response pipe|sock, status/errors (optional) ]
 	bool collapse_threads;
 	bool code_search;
 	bool relevance; // sort by relevance before column
@@ -546,12 +553,98 @@ static const struct cmd_entry {
 };
 
 #define MY_ARRAY_SIZE(x)	(sizeof(x)/sizeof((x)[0]))
-#define RECV_FD_CAPA 2
+#define RECV_FD_CAPA 3
 #define RECV_FD_SPACE	(RECV_FD_CAPA * sizeof(int))
 union my_cmsg {
 	struct cmsghdr hdr;
 	char pad[sizeof(struct cmsghdr) + 16 + RECV_FD_SPACE];
 };
+
+static bool io_to_rbuf_retry(int fd, int errnum, FILE *errfp)
+{
+	struct pollfd pfd;
+
+	switch (errnum) {
+	case EAGAIN:
+		fputs("W: io_to_rbuf EAGAIN, unexpected\n", errfp);
+		pfd.fd = fd;
+		pfd.events = POLLIN;
+		poll(&pfd, 1, -1);
+		return true;
+	case EINTR:
+		return true;
+	case ENOMEM: // read(3posix) documents ENOMEM + ENOBUFS
+	case ENOBUFS:
+		fprintf(errfp, "W: io_to_rbuf: %s, sleeping 100ms\n",
+			strerror(errnum));
+		poll(NULL, 0, 100);
+		return true;
+	default:
+		fprintf(errfp, "E: io_to_rbuf: %s\n", strerror(errnum));
+	}
+	return false;
+}
+
+static void stderr_set(FILE *tmp_err)
+{
+#if STDERR_ASSIGNABLE
+	if (my_setlinebuf(tmp_err))
+		perror("W: setlinebuf(tmp_err)");
+	stderr = tmp_err;
+	return;
+#endif
+	int fd = fileno(tmp_err);
+	if (fd < 0) err(EXIT_FAILURE, "BUG: fileno(tmp_err)");
+	while (dup2(fd, STDERR_FILENO) < 0) {
+		if (errno != EINTR)
+			err(EXIT_FAILURE, "dup2(%d => 2)", fd);
+	}
+}
+
+/*
+ * clients may send a single NUL byte ("\0") as the command and
+ * rely on req->fp[0] if it's readable since SOCK_SEQPACKET sockets
+ * don't always allow gigantic messages in msghdr.msg_iov
+ */
+static bool io_to_rbuf(struct req *req, char *rbuf, size_t *len)
+{
+	ssize_t r;
+	size_t off = 0;
+	int fd = fileno(req->fp[0]); // regular file
+	FILE *errfp = req->fp[2] ? req->fp[2] : stderr;
+	if (!req->fp[1])
+		errx(EXIT_FAILURE,
+"no response FD received when getting 1-byte NUL input");
+
+	do {
+		r = read(fd, rbuf + off, *len - off);
+	} while ( (r > 0 && (off += r) && off < *len) ||
+		(r < 0 && io_to_rbuf_retry(fd, errno, errfp)) );
+	if (r < 0) {
+		for (size_t i = 0; req->fp[i]; i++)
+			err(EXIT_FAILURE, "fclose(req->fp[%zu])", i);
+		return false;
+	} if (r == 0) {
+		if (off) // success
+			*len = off;
+		else
+			fputs("W: io_to_rbuf got no data\n", errfp);
+	} else { // (r > 0)
+		fprintf(errfp, "E: io_to_rbuf too much: off=%zu r=%zd\n",
+			off, r);
+	}
+	ERR_CLOSE(req->fp[0], EXIT_FAILURE);
+	size_t i = 0;
+	do { req->fp[i] = req->fp[i + 1]; } while (req->fp[++i]);
+	return true;
+}
+
+static bool is_reg_file(int fd) {
+	struct stat sb;
+	if (fstat(fd, &sb))
+		errx(EXIT_FAILURE, "fstat(%d): ", fd);
+	return !!S_ISREG(sb.st_mode);
+}
 
 static bool recv_req(struct req *req, char *rbuf, size_t *len)
 {
@@ -588,7 +681,8 @@ again:
 	if (r > 0 && msg.msg_flags & (MSG_CTRUNC|MSG_TRUNC))
 		ABORT("recvmsg %zu => %zd trunc %d", *len, r, msg.msg_flags);
 
-	*len = r;
+	enum input_state istate;
+	istate = (r == 1 && *rbuf == '\0') ? IN_FILE_MAYBE : IN_RBUF;
 	if (cmsg.hdr.cmsg_level == SOL_SOCKET &&
 			cmsg.hdr.cmsg_type == SCM_RIGHTS) {
 		size_t clen = cmsg.hdr.cmsg_len;
@@ -604,7 +698,9 @@ again:
 				mode = "w";
 			} else if (fl & O_RDWR) {
 				mode = "r+";
-				if (i == 0) req->has_input = true;
+				if (i == 0 && is_reg_file(fd) &&
+						istate == IN_FILE_MAYBE)
+					istate = IN_FILE;
 			} else {
 				errx(EXIT_FAILURE,
 					"invalid mode from F_GETFL: 0x%x", fl);
@@ -613,6 +709,9 @@ again:
 			if (!req->fp[i])
 				err(EXIT_FAILURE, "fdopen(fd=%d)", fd);
 		}
+		if (istate == IN_FILE)
+			return io_to_rbuf(req, rbuf, len);
+		*len = r;
 		return true;
 	}
 	errx(EXIT_FAILURE, "no FD received in %zd-byte request", r);
@@ -874,22 +973,6 @@ static void cleanup_pids(void)
 {
 	free(worker_pids);
 	worker_pids = NULL;
-}
-
-static void stderr_set(FILE *tmp_err)
-{
-#if STDERR_ASSIGNABLE
-	if (my_setlinebuf(tmp_err))
-		perror("W: setlinebuf(tmp_err)");
-	stderr = tmp_err;
-	return;
-#endif
-	int fd = fileno(tmp_err);
-	if (fd < 0) err(EXIT_FAILURE, "BUG: fileno(tmp_err)");
-	while (dup2(fd, STDERR_FILENO) < 0) {
-		if (errno != EINTR)
-			err(EXIT_FAILURE, "dup2(%d => 2)", fd);
-	}
 }
 
 static void stderr_restore(void)
