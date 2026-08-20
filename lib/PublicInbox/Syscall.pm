@@ -34,7 +34,8 @@ our @EXPORT_OK = qw(epoll_create
 		EPOLLIN EPOLLOUT EPOLLET
 		EPOLL_CTL_ADD EPOLL_CTL_DEL EPOLL_CTL_MOD
 		EPOLLONESHOT EPOLLEXCLUSIVE
-		rename_noreplace %SIGNUM $F_SETPIPE_SZ defrag_file);
+		rename_noreplace %SIGNUM $F_SETPIPE_SZ defrag_file
+		MY_SEQPACKET_MAX);
 use constant {
 	EPOLLIN => 1,
 	EPOLLOUT => 4,
@@ -337,6 +338,9 @@ BEGIN {
 		# dragonfly uses TCPS_ESTABLISHED==5, but it lacks TCP_INFO,
 		# so leave it unset on dfly
 		$CONST{TCP_ESTABLISHED} = 4 if $^O ne 'dragonfly';
+
+		# FIXME: see if NetBSD can bump this
+		$CONST{MY_SEQPACKET_MAX} = 400 if $^O eq 'netbsd';
 	}
 	if ($^O eq 'freebsd' && $kver ge v15.0) {
 		$INOTIFY = {
@@ -355,8 +359,14 @@ BEGIN {
 	$CONST{TMPL_msghdr} //= undef;
 	$CONST{MSG_MORE} //= 0;
 	$CONST{FIONREAD} //= undef;
-	# $Config{sig_count} is NSIG, so this is NSIG/8:
+
+	# Linux accepts over 128K, but FreeBSD 15.0 recvmsg(2) seems capped
+	# at 64K.  IOW, it splits the buffer across multiple recvmsg calls
+	# even when the first call is sufficiently large and the corresponding
+	# sendmsg(2) was a single send on a larger buffer.
+	$CONST{MY_SEQPACKET_MAX} //= 65536;
 }
+# $Config{sig_count} is NSIG, so this is NSIG/8:
 my $SIGSET_SIZE = int($Config{sig_count}/8);
 
 # SFD_CLOEXEC is arch-dependent, so IN_CLOEXEC may be, too

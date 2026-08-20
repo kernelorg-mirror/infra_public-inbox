@@ -13,6 +13,7 @@ use parent qw(Exporter);
 use autodie qw(close pipe read send socketpair);
 use Errno qw(EAGAIN EINTR);
 use Carp qw(croak carp);
+use PublicInbox::Syscall qw(MY_SEQPACKET_MAX);
 use PublicInbox::DS qw(awaitpid);
 use PublicInbox::IO qw(my_bufread my_gets);
 use PublicInbox::Spawn;
@@ -20,12 +21,6 @@ use PublicInbox::OnDestroy;
 use PublicInbox::WQWorker;
 use Socket qw(AF_UNIX SOCK_STREAM SOCK_SEQPACKET MSG_EOR);
 use Scalar::Util qw(blessed reftype);
-
-# Linux accepts over 128K, but FreeBSD 15.0 recvmsg(2) seems capped
-# at 64K (IOW, it splits the buffer across multiple recvmsg calls
-# even when the first call is sufficiently large and the corresponding
-# sendmsg(2) was a single send on a larger buffer.
-my $MY_MAX_ARG_LEN = 65536;
 
 our @EXPORT_OK = qw(ipc_freeze ipc_thaw nproc_shards send_eor);
 my ($enc, $dec);
@@ -325,7 +320,7 @@ sub ipc_sibling_atfork_child {
 
 sub recv_and_run {
 	my ($self, $s2, $len, $full_stream) = @_;
-	my @io = $recv_cmd->($s2, my $buf, $len // $MY_MAX_ARG_LEN);
+	my @io = $recv_cmd->($s2, my $buf, $len // MY_SEQPACKET_MAX);
 	return if scalar(@io) && !defined($io[0]);
 	my $n = length($buf) or return 0;
 	local @$self{0..$#io} = @io;
@@ -420,7 +415,7 @@ sub wq_io_do { # always async
 	my ($self, $sub, $io, @args) = @_;
 	my $s1 = $self->{-wq_s1} or Carp::confess('no -wq_s1');
 	my $buf = ipc_freeze([$sub, @args]);
-	if (length($buf) > $MY_MAX_ARG_LEN) {
+	if (length($buf) > MY_SEQPACKET_MAX) {
 		stream_in_full($s1, $io, $buf);
 	} elsif (defined sendmsg_eor($s1, $io, $buf)) {
 		# success
