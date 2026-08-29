@@ -220,6 +220,7 @@ EOM
 
 sub capture { # psgi_qx callback to capture git-for-each-ref
 	my ($bref, $ctx, $key) = @_; #  $_[3] = OnDestroy(summary_END)
+	utf8::decode($$bref);
 	$ctx->{qx_res}->{$key} = $$bref;
 	# summary_END may be called via OnDestroy $arg->[2]
 }
@@ -228,6 +229,7 @@ sub set_readme { # git->cat_async callback
 	my ($bref, $oid, $type, $size, $ctx) = @_;
 	my $ref_path = shift @{$ctx->{-readme_tries}}; # e.g. HEAD:README
 	if ($type eq 'blob' && !$ctx->{qx_res}->{readme}) {
+		utf8::decode($$bref);
 		$ctx->{qx_res}->{readme} = [ $bref, $oid, $ref_path ];
 	} elsif (scalar @{$ctx->{-readme_tries}} == 0) {
 		$ctx->{qx_res}->{readme} //= []; # nothing left to try
