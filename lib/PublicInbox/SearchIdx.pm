@@ -31,6 +31,7 @@ use PublicInbox::MsgTime qw(msg_timestamp msg_datestamp);
 use PublicInbox::Address;
 use File::Glob qw(bsd_glob GLOB_NOSORT);
 use File::Path ();
+use File::Spec ();
 use Config;
 our @EXPORT_OK = qw(log2stack is_ancestor check_size prepare_stack
 	index_text term_generator add_val is_bad_blob update_checkpoint
@@ -131,12 +132,14 @@ sub join_splits ($) {
 
 	my $rdr = { -C => $xpfx };
 	my $wip = File::Temp->newdir("$shard.join-tmp-XXXX", DIR => $xpfx);
-	my $dst = $wip->dirname . "/$shard";
-	push @$cmd, $self->{shard}, @tmps, $dst;
+	my $dst = File::Spec->rel2abs($wip->dirname . "/$shard");
+	# use relative paths for cmd to reduce likelyhood of running out of
+	# argv space
+	push @$cmd, $self->{shard}, @tmps, File::Spec->abs2rel($dst, $xpfx);
 	$self->{-opt}->{cow} or PublicInbox::Syscall::nodatacow_dir($dst);
 	my $restore = $self->with_umask;
 	if ($pr) {
-		$pr->("$shard compacting (@$cmd)\n");
+		$pr->("$shard compacting (@$cmd) (in $xpfx)\n");
 		$before_bytes = du_1_level $xdir, @ftmps;
 		$t0 = now;
 	}
