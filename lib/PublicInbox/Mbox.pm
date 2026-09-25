@@ -259,7 +259,10 @@ sub mbox_all {
 				$ctx->{ibx}->{isrch}->{es}->over :
 				$ctx->{ibx}->over) or
 			return PublicInbox::WWW::need($ctx, 'Overview');
-		$opt->{threadid} = $over->mid2tid($ctx->{mid});
+		# an unknown Message-ID must not become a whole-inbox search
+		$opt->{threadid} = $over->mid2tid($ctx->{mid}) //
+			return [404, [qw(Content-Type text/plain)],
+				["No results found\n"]];
 	}
 	$opt->{threads} = 1 if $q->{t};
 	$srch->query_approxidate($ctx->{ibx}->git, $qstr);
