@@ -105,6 +105,8 @@ my $test_lei_q_threadid = sub {
 	test_lei(sub {
 		lei_ok qw(q -f text --only), $u, qw(-T t@1 s:unrelated);
 		is $lei_out, '', 'no results on unrelated thread';
+		lei_ok qw(q -f text --only), $u, qw(-T unknown@1 s:unrelated);
+		is $lei_out, '', 'no results on unknown thread';
 		lei_ok qw(q -f text --only), $u, qw(-T t@1 dt:19931002000300..);
 		my @m = ($lei_out =~ m!^Message-ID: <([^>]+)>\n!gms);
 		is_deeply \@m, ['t@3'], 'got expected result from -T MSGID';
@@ -386,6 +388,9 @@ my $client3 = sub {
 
 	$res = $cb->(POST("/m2t/t\@1/?q=s:unrelated&x=m"));
 	is($res->code, 404, '404 on cross-thread search');
+
+	$res = $cb->(POST("/m2t/unknown\@1/?q=s:unrelated&x=m"));
+	is($res->code, 404, '404 on search scoped to an unknown Message-ID');
 
 	my $rmt = $ENV{PLACK_TEST_EXTERNALSERVER_URI};
 	$rmt and $test_lei_q_threadid->("$rmt/m2t/");

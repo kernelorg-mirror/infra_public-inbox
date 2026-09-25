@@ -185,7 +185,9 @@ sub query_one_mset { # for --threads and l2m w/o sort
 	my $threads = $lei->{opt}->{threads} // 0;
 	my $fl = $threads > 1 ? 1 : undef;
 	my $mid = $lei->{opt}->{'thread-id'};
-	$mo->{threadid} = $over->mid2tid($mid) if defined $mid;
+	if (defined $mid) { # unknown $mid: no results, not a full search
+		$mo->{threadid} = $over->mid2tid($mid) // return;
+	}
 	my $lss = $lei->{lss};
 	my $maxk = "external.$dir.maxuid"; # max of previous, so our min
 	my $min = $lss ? ($lss->{-cfg}->{$maxk} // 0) : 0;
