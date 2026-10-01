@@ -27,6 +27,8 @@ sub _mbox_from {
 	my $buf = '';
 	my @raw;
 	while (defined(my $r = read($mbfh, $buf, 65536, length($buf)))) {
+		$r < 0 and die 'error reading mboxo/mboxrd handle: ',
+				$mbfh->error, "\n"; # IO::Uncompress::*
 		if ($r == 0) { # close here to check for "curl --fail"
 			$mbfh->close or die "error closing mbox: \$?=$? $!";
 			@raw = ($buf);
@@ -86,6 +88,8 @@ sub _mbox_cl ($$$;@) {
 	my ($mbfh, $uxs_from, $eml_cb, @arg) = @_;
 	my $buf = '';
 	while (defined(my $r = read($mbfh, $buf, 65536, length($buf)))) {
+		$r < 0 and die 'error reading mboxcl/mboxcl2 handle: ',
+				$mbfh->error, "\n"; # IO::Uncompress::*
 		if ($r == 0) { # detect "curl --fail"
 			$mbfh->close or
 				die "error closing mboxcl/mboxcl2: \$?=$? $!";

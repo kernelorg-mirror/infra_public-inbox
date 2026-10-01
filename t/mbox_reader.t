@@ -148,4 +148,30 @@ EOM
 	}
 }
 
+{ # truncated .gz (e.g. dropped HTTP connection w/o Content-Length)
+	use IO::Compress::Gzip qw(gzip);
+	use IO::Uncompress::Gunzip;
+	use PublicInbox::SHA qw(sha256_hex);
+	my @bdy = map { # incompressible messages for many 64K reads
+		my $i = $_;
+		join('', map { sha256_hex("$i.$_")."\n" } 1..200)
+	} (1..30);
+	for my $fmt (@mbox) {
+		my $eml2mbox = PublicInbox::LeiToMail->can("eml2$fmt");
+		my $mbox = join('', map {
+			my $eml = PublicInbox::Eml->new("From: x\@y\n\n$_");
+			${$eml2mbox->($eml)}
+		} @bdy);
+		gzip(\$mbox => \(my $gz)) or BAIL_OUT 'gzip';
+		substr($gz, length($gz) / 2) = '';
+		my $fh = IO::Uncompress::Gunzip->new(\$gz, MultiStream => 1);
+		my @x;
+		eval { $reader->$fmt($fh, sub { push @x, shift }) };
+		like($@, qr/^error reading /, "error raised ($fmt)");
+		ok(@x > 0 && @x < @bdy, "partial results ($fmt)");
+		is_deeply([ map { $_->body } @x ], [ @bdy[0..$#x] ],
+			"no incomplete message ($fmt)");
+	}
+}
+
 done_testing;
