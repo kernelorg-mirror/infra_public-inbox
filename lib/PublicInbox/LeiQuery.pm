@@ -209,7 +209,7 @@ sub _complete_q {
 sub curl_opt { qw(
 	curl-config=s@
 	abstract-unix-socket=s anyauth basic cacert=s capath=s
-	cert-status cert-type cert=s ciphers=s
+	cert-status cert-type=s cert=s ciphers=s
 	connect-timeout=s connect-to=s cookie-jar=s cookie=s crlfile=s
 	digest disable dns-interface=s dns-ipv4-addr=s dns-ipv6-addr=s
 	dns-servers=s doh-url=s egd-file=s engine=s false-start
@@ -223,15 +223,15 @@ sub curl_opt { qw(
 	proxy-anyauth proxy-basic proxy-cacert=s proxy-capath=s
 	proxy-cert-type=s proxy-cert=s proxy-ciphers=s proxy-crlfile=s
 	proxy-digest proxy-header=s@ proxy-insecure
-	proxy-key-type=s proxy-key proxy-negotiate proxy-ntlm proxy-pass=s
+	proxy-key-type=s proxy-key=s proxy-negotiate proxy-ntlm proxy-pass=s
 	proxy-pinnedpubkey=s proxy-service-name=s proxy-ssl-allow-beast
 	proxy-tls13-ciphers=s proxy-tlsauthtype=s proxy-tlspassword=s
 	proxy-tlsuser=s proxy-tlsv1 proxy-user=s proxy=s
-	proxytunnel=s pubkey=s random-file=s referer=s resolve=s
+	proxytunnel pubkey=s random-file=s referer=s resolve=s
 	retry-connrefused retry-delay=s retry-max-time=s retry=i
 	sasl-ir service-name=s socks4=s socks4a=s socks5-basic
-	socks5-gssapi-service-name=s socks5-gssapi socks5-hostname=s socks5=s
-	speed-limit speed-type ssl-allow-beast sslv2 sslv3
+	socks5-gssapi-service=s socks5-gssapi socks5-hostname=s socks5=s
+	speed-limit=i speed-time=i ssl-allow-beast sslv2 sslv3
 	suppress-connect-headers tcp-fastopen tls-max=s
 	tls13-ciphers=s tlsauthtype=s tlspassword=s tlsuser=s
 	tlsv1 trace-ascii=s trace-time trace=s
