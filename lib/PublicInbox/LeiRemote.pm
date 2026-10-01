@@ -47,12 +47,14 @@ sub mset {
 	my $cmd = $curl->for_uri($self->{lei}, $uri);
 	$self->{lei}->qerr("# $cmd");
 	$self->{smsg} = [];
-	my $fh = popen_rd($cmd, undef, { 2 => $lei->{2} });
-	$fh = IO::Uncompress::Gunzip->new($fh, MultiStream=>1, AutoClose=>1);
+	my $rd = popen_rd($cmd, undef, { 2 => $lei->{2} });
+	my $fh = IO::Uncompress::Gunzip->new($rd, MultiStream => 1);
 	eval { PublicInbox::MboxReader->mboxrd($fh, \&each_mboxrd_eml, $self) };
 	my $err = $@ ? ": $@" : '';
+	$rd->close; # Gunzip won't close $rd on errors
+	my $code = $?;
 	my $wait = $self->{lei}->{sto}->wq_do('barrier');
-	$lei->child_error($?, "@$cmd failed$err") if $err || $?;
+	$lei->child_error($code, "@$cmd failed$err") if $err || $code;
 	$self; # we are the mset (and $ibx, and $self)
 }
 
