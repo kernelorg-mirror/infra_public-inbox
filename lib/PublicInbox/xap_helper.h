@@ -112,11 +112,12 @@ static void *xreallocarray(void *ptr, size_t nmemb, size_t size)
 	void *ret = reallocarray(ptr, nmemb, size);
 #else // everyone has g++ >=5 these days, right?
 	void *ret = NULL;
+	size_t n;
 
-	if (__builtin_mul_overflow(nmemb, size, 0))
+	if (__builtin_mul_overflow(nmemb, size, &n))
 		errno = ENOMEM;
 	else
-		ret = realloc(ptr, nmemb * size);
+		ret = realloc(ptr, n);
 #endif
 	if (!ret) EABORT("reallocarray(..., %zu, %zu)", nmemb, size);
 	return ret;
