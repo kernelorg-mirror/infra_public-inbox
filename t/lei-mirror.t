@@ -73,10 +73,15 @@ test_lei({ tmpdir => $tmpdir }, sub {
 	unlike($lei_out, qr!\Qnewline\E!, 'newline entry not added');
 
 	ok(!lei('add-external', "$t2-fail", '-Lmedium'), '--mirror v2');
-	like($lei_err, qr/not a directory/, 'non-directory noted');
+	like($lei_err, qr/--indexlevel requires --mirror/, '-L w/o --mirror');
 	ok(!-d "$t2-fail", 'destination not created on failure');
 	lei_ok('ls-external');
 	unlike($lei_out, qr!\Q$t2-fail\E!, 'not added to ls-external');
+	ok(!lei(qw(add-external -j2 --cacert x --insecure), $t1),
+		'index and curl options fail w/o --mirror');
+	like($lei_err,
+		qr/--jobs, --cacert and --insecure require --mirror/,
+		'all options noted');
 
 	lei_ok('add-external', "$t1-pfx", '--mirror', "$http/pfx/t1/",
 			\'--mirror v1 w/ PSGI prefix');

@@ -21,17 +21,17 @@ sub lei_add_external {
 		my @fail;
 		for my $sw ($lei->index_opt, $lei->curl_opt,
 				qw(no-torsocks torsocks inbox-version)) {
-			my ($f) = (split(/|/, $sw, 2))[0];
+			my ($f) = split(/[|=!]/, $sw, 2);
 			next unless defined $lei->{opt}->{$f};
 			$f = length($f) == 1 ? "-$f" : "--$f";
 			push @fail, $f;
 		}
 		if (scalar(@fail) == 1) {
-			return $lei->("@fail requires --mirror");
+			return $lei->fail("@fail requires --mirror");
 		} elsif (@fail) {
 			my $last = pop @fail;
 			my $fail = join(', ', @fail);
-			return $lei->("@fail and $last require --mirror");
+			return $lei->fail("$fail and $last require --mirror");
 		}
 		undef;
 	};
