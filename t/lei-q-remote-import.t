@@ -73,6 +73,15 @@ test_lei({ tmpdir => $tmpdir }, sub {
 	ok(-s $o, 'got result from remote external');
 	my $exp = eml_load('t/utf8.eml');
 	is_deeply($slurp_emls->($o), [$exp], 'got expected result');
+	# some distros lack GSS-API support in curl(1)
+	my $gss = xqx([require_cmd('curl'), '-V']) =~ /^Features:.*GSS-API/m;
+	my @curl_opt = (qw(--cert-type PEM --proxy-key k --proxytunnel),
+		$gss ? qw(--socks5-gssapi-service s) : (),
+		qw(--speed-limit 1 --speed-time 30));
+	lei_ok(qw(q -o), "mboxrd:$o", '--only', $url, @curl_opt,
+		'm:testmessage@example.com');
+	like($lei_err, qr/ \Q@curl_opt\E /, 'curl options passed through');
+	is_deeply($slurp_emls->($o), [$exp], 'expected result w/ curl opts');
 	lei_ok(qw(q --no-external -o), "mboxrd:/dev/stdout",
 			'm:testmessage@example.com');
 	is($lei_out, '', 'message not imported when in local external');
