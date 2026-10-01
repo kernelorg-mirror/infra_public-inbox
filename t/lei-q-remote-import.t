@@ -82,6 +82,10 @@ test_lei({ tmpdir => $tmpdir }, sub {
 		'm:testmessage@example.com');
 	like($lei_err, qr/ \Q@curl_opt\E /, 'curl options passed through');
 	is_deeply($slurp_emls->($o), [$exp], 'expected result w/ curl opts');
+	lei_ok(qw(q --curl-config /dev/null -o), "mboxrd:$o", '--only', $url,
+		'm:testmessage@example.com');
+	like($lei_err, qr! --config /dev/null !, '--curl-config passed');
+	is_deeply($slurp_emls->($o), [$exp], 'result w/ --curl-config');
 	lei_ok(qw(q --no-external -o), "mboxrd:/dev/stdout",
 			'm:testmessage@example.com');
 	is($lei_out, '', 'message not imported when in local external');

@@ -17,9 +17,7 @@ use overload '""' => sub {
 	join(' ', map { $_ eq '' ?  "''" : $_ } @{$_[0]});
 };
 
-my %lei2curl = (
-	'curl-config=s@' => 'config|K=s@',
-);
+my %lei2curl = ('curl-config' => 'config');
 
 # prepares a common command for curl(1) based on $lei command
 sub new {
@@ -30,18 +28,16 @@ sub new {
 	$cmd[-1] .= 's' if $opt->{quiet}; # already the default for "lei q"
 	$cmd[-1] .= 'v' if $opt->{verbose}; # we use ourselves, too
 	for my $o ($lei->curl_opt) {
-		if (my $lei_spec = $lei2curl{$o}) {
-			$o = $lei_spec;
-		}
-		$o =~ s/\|[a-z0-9]\b//i; # remove single char short option
-		if ($o =~ s/=[is]@\z//) {
-			my $ary = $opt->{$o} or next;
-			push @cmd, map { ("--$o", $_) } @$ary;
-		} elsif ($o =~ s/=[is]\z//) {
-			my $val = $opt->{$o} // next;
-			push @cmd, "--$o", $val;
-		} elsif ($opt->{$o}) {
-			push @cmd, "--$o";
+		my ($k) = ($o =~ /\A([^=|]+)/); # drop short option and type
+		my $sw = '--'.($lei2curl{$k} // $k);
+		if ($o =~ /=[is]@\z/) {
+			my $ary = $opt->{$k} or next;
+			push @cmd, map { ($sw, $_) } @$ary;
+		} elsif ($o =~ /=[is]\z/) {
+			my $val = $opt->{$k} // next;
+			push @cmd, $sw, $val;
+		} elsif ($opt->{$k}) {
+			push @cmd, $sw;
 		}
 	}
 	push @cmd, '-v' if $opt->{verbose}; # lei uses this itself
