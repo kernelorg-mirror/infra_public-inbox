@@ -25,8 +25,8 @@ sub mbox_keywords {
 sub _mbox_from {
 	my ($mbfh, $from_re, $eml_cb, @arg) = @_;
 	my $buf = '';
-	my @raw;
-	while (defined(my $r = read($mbfh, $buf, 65536, length($buf)))) {
+	my (@raw, $r);
+	while (($r = read($mbfh, $buf, 65536, length $buf) // -1) >= 0) {
 		if ($r == 0) { # close here to check for "curl --fail"
 			$mbfh->close or die "error closing mbox: \$?=$? $!";
 			@raw = ($buf);
@@ -44,7 +44,7 @@ sub _mbox_from {
 		}
 		return if $r == 0; # EOF
 	}
-	die "error reading mboxo/mboxrd handle: $!";
+	die 'error reading mboxo/mboxrd handle: ', $mbfh->error;
 }
 
 sub mboxrd {
@@ -85,7 +85,8 @@ sub _extract_hdr {
 sub _mbox_cl ($$$;@) {
 	my ($mbfh, $uxs_from, $eml_cb, @arg) = @_;
 	my $buf = '';
-	while (defined(my $r = read($mbfh, $buf, 65536, length($buf)))) {
+	my $r;
+	while (($r = read($mbfh, $buf, 65536, length $buf) // -1) >= 0) {
 		if ($r == 0) { # detect "curl --fail"
 			$mbfh->close or
 				die "error closing mboxcl/mboxcl2: \$?=$? $!";
@@ -118,7 +119,7 @@ sub _mbox_cl ($$$;@) {
 			return;
 		}
 	}
-	die "error reading mboxcl/mboxcl2 handle: $!";
+	die 'error reading mboxcl/mboxcl2 handle: ', $mbfh->error;
 }
 
 sub mboxcl {
