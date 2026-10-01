@@ -118,12 +118,12 @@ sub handle_http_input ($$@) {
 	push @$curl, '-s', @$curl_opt;
 	my $cmd = $curl->for_uri($lei, $uri);
 	$lei->qerr("# $cmd");
-	my $fh = popen_rd($cmd, undef, { 2 => $lei->{2} });
-	grep(/\A--compressed\z/, @$curl) or
-		$fh = IO::Uncompress::Gunzip->new($fh,
-					MultiStream => 1, AutoClose => 1);
+	my $rd = popen_rd($cmd, undef, { 2 => $lei->{2} });
+	my $fh = grep(/\A--compressed\z/, @$curl) ? $rd :
+		IO::Uncompress::Gunzip->new($rd, MultiStream => 1);
 	eval { $self->input_fh('mboxrd', $fh, $url, @args) };
 	my $err = $@ ? ": $@" : '';
+	$rd->close if $rd->opened; # Gunzip won't close $rd on errors
 	$lei->child_error($?, "@$cmd failed$err") if $err || $?;
 }
 

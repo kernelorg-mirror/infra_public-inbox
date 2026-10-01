@@ -383,18 +383,19 @@ print STDERR $_;
 		my $cmd = $curl->for_uri($lei, $uri);
 		$lei->qerr("# $cmd");
 		$rdr->{2} //= popen_wr(@lbf_tee) if @lbf_tee;
-		my $fh = popen_rd($cmd, undef, $rdr);
-		$fh = IO::Uncompress::Gunzip->new($fh,
-					MultiStream => 1, AutoClose => 1);
+		my $rd = popen_rd($cmd, undef, $rdr);
+		my $fh = IO::Uncompress::Gunzip->new($rd, MultiStream => 1);
 		eval {
 			PublicInbox::MboxReader->mboxrd($fh, \&each_remote_eml,
 						$self, $lei, $each_smsg);
 		};
-		my ($exc, $code) = ($@, $?);
+		my $exc = $@;
+		$rd->close; # Gunzip won't close $rd on errors
+		my $code = $?;
 		$lei->sto_barrier_request if delete($self->{-sto_imported});
-		die "E: $exc" if $exc && !$code;
 		my $nr = delete $lei->{-nr_remote_eml} // 0;
-		if (!$code) { # don't update if no results, maybe MTA is down
+		# don't update if no results, maybe MTA is down
+		if (!$code && !$exc) {
 			$lei->{lss}->cfg_set($key, $start) if $key && $nr;
 			mset_progress($lei, $lei->{-current_url}, $nr, $nr);
 			next;
@@ -405,7 +406,8 @@ print STDERR $_;
 		truncate($cerr, 0);
 		next if (($code >> 8) == 22 && $err =~ /\b404\b/);
 		$uri->query_form(q => $qstr);
-		$lei->child_error($code, "E: <$uri> `$cmd` failed");
+		$lei->child_error($code, "E: <$uri> `$cmd` failed".
+					($exc ? ": $exc" : ''));
 	}
 	undef $each_smsg;
 	$lei->{ovv}->ovv_atexit_child($lei);
