@@ -12,6 +12,10 @@ Invoke C<git config --edit> to edit the saved search at C<OUTPUT>,
 where C<OUTPUT> was supplied for argument of C<lei q -o OUTPUT ...>
 A listing of outputs is available via C<lei ls-search>.
 
+=head1 TIPS
+
+Writing long queries by specifying C<q => multiple times is supported.
+
 =head1 CONTACT
 
 Feedback welcome via plain-text mail to L<mailto:meta@public-inbox.org>
