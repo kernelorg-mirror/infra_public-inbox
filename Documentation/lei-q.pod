@@ -335,6 +335,10 @@ into a reply (since using C<git format-patch --in-reply-to=...>
 is tedious).  Results (including "From " lines) should be edited
 and trimmed in your favorite C<$EDITOR> before sending.
 
+It is recommended to use C<--stdin> to avoid quoting problems with shell
+arguments, that can occur when constructing queries that combine multiple
+operands.
+
 =head1 CONTACT
 
 Feedback welcome via plain-text mail to L<mailto:meta@public-inbox.org>
